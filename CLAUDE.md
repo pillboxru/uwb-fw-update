@@ -11,6 +11,13 @@ python tools/build.py                         # -> ./uwb-fw-update (zipapp, ед
 
 Пересобранный `uwb-fw-update` коммитьте вместе с изменением кода. Сборка воспроизводима, так что без изменений в `uwbfwup/` файл не меняется.
 
+Релиз на GitHub (отсюда утилита узнаёт о новой версии и обновляет себя: `version --check`, `self-update`):
+
+```sh
+# поднять __version__ в uwbfwup/__init__.py -> тесты -> build -> commit -> git push
+python tools/release.py        # gh release create v<версия>: uwb-fw-update + uwb-fw-update.sha256
+```
+
 Деплой на контроллер — только в `/mnt/data/uwb-fw-update/`, не в `/usr/local/bin` и не в `/root`:
 
 ```sh

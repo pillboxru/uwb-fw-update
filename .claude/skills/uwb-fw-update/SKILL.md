@@ -40,13 +40,21 @@ ssh -o BatchMode=yes root@<HOST> "$WFU --version"
 
 ## Установка (если `$WFU --version` не отвечает)
 
-Утилита — один файл (zipapp, около 50 КБ), ей нужен только штатный `python3`. Файл собирается из репозитория утилиты командой `python tools/build.py`, результат — `uwb-fw-update` в корне репозитория (он же лежит в git готовым). Если репозитория под рукой нет, спросите у пользователя, где его взять.
+Утилита — один файл (zipapp, около 50 КБ), ей нужен только штатный `python3`. Готовый файл лежит в релизах GitHub: если у контроллера есть интернет, скачайте его прямо туда:
+
+```bash
+ssh root@<HOST> 'mkdir -p /mnt/data/uwb-fw-update && curl -fL -o /mnt/data/uwb-fw-update/uwb-fw-update https://github.com/pillboxru/uwb-fw-update/releases/latest/download/uwb-fw-update && chmod +x /mnt/data/uwb-fw-update/uwb-fw-update && /mnt/data/uwb-fw-update/uwb-fw-update --version'
+```
+
+Иначе файл собирается из репозитория утилиты командой `python tools/build.py`, результат — `uwb-fw-update` в корне репозитория (он же лежит в git готовым), и копируется по scp:
 
 ```bash
 ssh root@<HOST> 'mkdir -p /mnt/data/uwb-fw-update'
 scp uwb-fw-update root@<HOST>:/mnt/data/uwb-fw-update/uwb-fw-update
 ssh root@<HOST> 'chmod +x /mnt/data/uwb-fw-update/uwb-fw-update && /mnt/data/uwb-fw-update/uwb-fw-update --version'
 ```
+
+**Обновление самой утилиты.** `$WFU version --check --json` — только чтение, выполняйте свободно (поле `update_available`). Если `check`/`update` пишут «Доступна новая версия uwb-fw-update», сообщите пользователю. `$WFU self-update -y` меняет только файл утилиты (прежний — `uwb-fw-update.prev`), устройства и `wb-mqtt-serial` не трогает, во время прогона отказывает; всё равно выполняйте его только с согласия пользователя.
 
 Каталог `/mnt/data/uwb-fw-update/` переживает обновление прошивки контроллера. Кроме утилиты, там лежат `cache/`, `devices.json` и `runs/<run-id>/`.
 

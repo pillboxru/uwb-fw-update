@@ -198,7 +198,8 @@ class RootCheckTest(unittest.TestCase):
         p = cli.build_parser()
         for argv, need in ((["update"], True), (["check"], True), (["stop"], True), (["cache", "sync"], True),
                            (["list"], False), (["report"], False), (["watch"], False), (["status"], False),
-                           (["cache", "verify"], False), (["runs"], False)):
+                           (["cache", "verify"], False), (["runs"], False),
+                           (["self-update"], True), (["version", "--check"], False)):
             self.assertEqual(cli.needs_root(p.parse_args(argv)), need, argv)
 
     def test_refused_without_root(self):

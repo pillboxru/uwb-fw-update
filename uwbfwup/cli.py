@@ -9,7 +9,7 @@ import sys
 import time
 
 from . import DEFAULT_CONFIG, DEFAULT_HOME, __version__
-from . import daemon, report as reportmod, runner
+from . import daemon, report as reportmod, runner, selfupdate
 from .cache import Cache, CacheError
 from .config import load_config, select_devices
 from .fsutil import read_json
@@ -127,6 +127,14 @@ def build_parser():
     c.add_argument("--suite")
     c.add_argument("--dry-run", action="store_true")
 
+    p = sub.add_parser("version", help="версия утилиты; --check — есть ли новая на GitHub")
+    p.add_argument("--check", action="store_true", help="узнать последнюю версию на GitHub")
+    p.add_argument("--json", action="store_true")
+    p = sub.add_parser("self-update", help="обновить саму утилиту до последнего релиза с GitHub")
+    p.add_argument("--check-only", action="store_true", help="только проверить, не обновлять")
+    p.add_argument("--force", action="store_true", help="переустановить, даже если версия не новее")
+    p.add_argument("-y", "--yes", action="store_true", help="не задавать вопросов")
+
     p = sub.add_parser("_worker")
     p.add_argument("run_dir")
     p = sub.add_parser("_poststop")
@@ -236,6 +244,11 @@ def cmd_run(args):
         print(f"продолжение прогона {source_run}: устройств {len(todo)}")
     if crashed:
         opts.include += [list(x) for x in crashed if list(x) not in opts.include]
+
+    if not opts.offline:
+        notice = selfupdate.update_notice(opts.home)
+        if notice:
+            print(notice, file=sys.stderr)
 
     # быстрая проверка до запуска: конфиг разбирается, фильтры что-то выбирают
     model = load_config(opts.config)
@@ -444,9 +457,57 @@ def cmd_cache(args):
     return EXIT_USAGE
 
 
+def cmd_version(args):
+    if not args.check:
+        print(__version__)
+        return EXIT_OK
+    try:
+        rel = selfupdate.latest_release()
+    except selfupdate.SelfUpdateError as e:
+        print(f"не удалось узнать последнюю версию: {e}", file=sys.stderr)
+        return EXIT_ENV
+    newer = selfupdate.is_newer(rel["version"])
+    if args.json:
+        print(json.dumps({"version": __version__, "latest": rel["version"], "update_available": newer,
+                          "url": rel["url"]}, ensure_ascii=False, indent=1))
+    else:
+        print(f"установлена: {__version__}")
+        print(f"последняя:   {rel['version']}  {rel['url'] or ''}")
+        print("доступно обновление: uwb-fw-update self-update" if newer else "обновление не требуется")
+    return EXIT_OK
+
+
+def cmd_self_update(args):
+    try:
+        rel = selfupdate.latest_release()
+        newer = selfupdate.is_newer(rel["version"])
+        print(f"установлена: {__version__}, последняя: {rel['version']}")
+        if not newer and not args.force:
+            print("обновление не требуется")
+            return EXIT_OK
+        if args.check_only:
+            return EXIT_OK
+        target = selfupdate.self_path()
+        cur = daemon.current_run(args.home)
+        if cur and daemon.is_alive(cur[0], cur[2]):
+            print(f"идёт прогон {cur[0]} — обновите утилиту после его завершения", file=sys.stderr)
+            return EXIT_ENV
+        if not args.yes and sys.stdin.isatty():
+            answer = input(f"Заменить {target} версией {rel['version']}? [y/N] ").strip().lower()
+            if answer not in ("y", "yes", "д", "да"):
+                return EXIT_USAGE
+        selfupdate.install(rel, target)
+    except selfupdate.SelfUpdateError as e:
+        print(f"self-update: {e}", file=sys.stderr)
+        return EXIT_ENV
+    print(f"обновлено до {rel['version']}: {target} (прежняя версия: {target}.prev)")
+    return EXIT_OK
+
+
 # команды, которые останавливают wb-mqtt-serial, работают с портами, пишут в каталог данных
 # или управляют воркером, запущенным от root
-ROOT_COMMANDS = {"check", "update", "recover", "stop", "pause", "resume", "prune-runs", "_worker", "_poststop"}
+ROOT_COMMANDS = {"check", "update", "recover", "stop", "pause", "resume", "prune-runs", "self-update",
+                 "_worker", "_poststop"}
 ROOT_CACHE_COMMANDS = {"sync", "prune"}
 
 
@@ -466,11 +527,13 @@ def main(argv=None):
             why = "команда останавливает wb-mqtt-serial и работает с портами RS-485 и шлюзами"
         elif args.cmd in ("stop", "pause", "resume"):
             why = "команда управляет прогоном, запущенным от root"
+        elif args.cmd == "self-update":
+            why = "команда заменяет файл утилиты"
         else:
             why = f"команда пишет в {args.home}"
         print(f"uwb-fw-update {what}: нужны права root — {why}.\n"
               f"Запустите от root (например: sudo {sys.argv[0]} ...). Без root доступны просмотр: "
-              f"list, status, watch, report, logs, runs, cache list/verify.", file=sys.stderr)
+              f"list, status, watch, report, logs, runs, cache list/verify, version.", file=sys.stderr)
         return EXIT_ENV
     try:
         if args.cmd == "list":
@@ -495,6 +558,10 @@ def main(argv=None):
             return cmd_prune_runs(args)
         if args.cmd == "cache":
             return cmd_cache(args)
+        if args.cmd == "version":
+            return cmd_version(args)
+        if args.cmd == "self-update":
+            return cmd_self_update(args)
         if args.cmd == "_worker":
             run_dir = os.path.abspath(args.run_dir)
             return runner.Runner(os.path.basename(run_dir), run_dir, runner.load_options(run_dir)).execute()

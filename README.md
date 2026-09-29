@@ -27,7 +27,17 @@
 
 ## Установка на контроллер
 
-Утилита собирается в **один исполняемый файл** (zipapp, около 50 КБ). Нужен только штатный `python3` контроллера:
+Утилита собирается в **один исполняемый файл** (zipapp, около 50 КБ). Нужен только штатный `python3` контроллера.
+Готовый файл публикуется в [релизах на GitHub](https://github.com/pillboxru/uwb-fw-update/releases) — его можно скачать прямо на контроллер:
+
+```sh
+mkdir -p /mnt/data/uwb-fw-update
+curl -fL -o /mnt/data/uwb-fw-update/uwb-fw-update     https://github.com/pillboxru/uwb-fw-update/releases/latest/download/uwb-fw-update
+chmod +x /mnt/data/uwb-fw-update/uwb-fw-update
+/mnt/data/uwb-fw-update/uwb-fw-update --version
+```
+
+Или собрать самому и скопировать:
 
 ```sh
 # на компьютере разработчика
@@ -38,12 +48,12 @@ chmod +x /mnt/data/uwb-fw-update/uwb-fw-update
 /mnt/data/uwb-fw-update/uwb-fw-update --help
 ```
 
-Всё, что относится к утилите, лежит в одном каталоге `/mnt/data/uwb-fw-update/` на разделе данных — он переживает обновление прошивки контроллера. Чтобы обновить утилиту, достаточно заменить файл `uwb-fw-update`. Работать из исходников тоже можно: `PYTHONPATH=<каталог с uwbfwup> python3 -m uwbfwup <команда>`.
+Всё, что относится к утилите, лежит в одном каталоге `/mnt/data/uwb-fw-update/` на разделе данных — он переживает обновление прошивки контроллера. Чтобы обновить утилиту, достаточно заменить файл `uwb-fw-update` (или выполнить `uwb-fw-update self-update`, см. ниже). Работать из исходников тоже можно: `PYTHONPATH=<каталог с uwbfwup> python3 -m uwbfwup <команда>`.
 
 ### Права
 
-- **Нужен root:** `check`, `update`, `recover`, `stop`, `pause`, `resume`, `cache sync`, `cache prune`, `prune-runs`. Эти команды останавливают `wb-mqtt-serial` (в режиме `direct`), работают с портами RS-485 и шлюзами, создают службу systemd, пишут в каталог данных и управляют воркером, который запущен от root. Без прав root команда сразу выходит с понятным сообщением (код 3), ничего не трогая.
-- **Доступно любому пользователю:** `list`, `status`, `watch`, `report`, `logs`, `runs`, `cache list`, `cache verify`. Файлы состояния и отчётов записываются с правами 0644.
+- **Нужен root:** `check`, `update`, `recover`, `stop`, `pause`, `resume`, `cache sync`, `cache prune`, `prune-runs`, `self-update`. Эти команды останавливают `wb-mqtt-serial` (в режиме `direct`), работают с портами RS-485 и шлюзами, создают службу systemd, пишут в каталог данных и управляют воркером, который запущен от root. Без прав root команда сразу выходит с понятным сообщением (код 3), ничего не трогая.
+- **Доступно любому пользователю:** `list`, `status`, `watch`, `report`, `logs`, `runs`, `cache list`, `cache verify`, `version`. Файлы состояния и отчётов записываются с правами 0644.
 
 ### Одновременный запуск
 
@@ -63,8 +73,21 @@ chmod +x /mnt/data/uwb-fw-update/uwb-fw-update
 |---|---|
 | `uwb-fw-update` | сама утилита (единый файл) |
 | `cache/` | индексы релизов и файлы `.wbfw` с метаданными (size, md5, ETag) |
+| `selfcheck.json` | последняя версия утилиты на GitHub и время проверки |
 | `devices.json` | последние известные сигнатуры и версии устройств; нужна для восстановления старых загрузчиков, не сообщающих сигнатуру |
 | `runs/<run-id>/` | прогон: `state.json`, `events.jsonl`, `report.json`, `run.log`, `bus-<шина>.log`, `control.json` |
+
+### Обновление утилиты
+
+```sh
+uwb-fw-update version --check [--json]   # установленная и последняя версия на GitHub
+uwb-fw-update self-update [-y]           # скачать последний релиз и заменить файл утилиты
+uwb-fw-update self-update --check-only   # только проверить
+```
+
+`self-update` скачивает файл из последнего релиза GitHub, сверяет sha256, проверяет, что это собранная утилита и что она сообщает ожидаемую версию, и атомарно заменяет запущенный файл. Прежняя версия сохраняется рядом как `uwb-fw-update.prev`. Во время прогона `self-update` отказывает. Устройства и `wb-mqtt-serial` он не трогает.
+
+Команды `check`, `update` и `recover` при запуске напоминают одной строкой, если на GitHub есть более новая версия. На GitHub утилита обращается не чаще раза в сутки (результат хранится в `selfcheck.json` каталога данных), при недоступности сети молчит; с `--offline` или переменной `UWBFWUP_NO_UPDATE_CHECK=1` не проверяет вовсе.
 
 ## Быстрый старт
 
@@ -281,6 +304,8 @@ uwb-fw-update cache prune [--dry-run]   # удалить то, что не ну�
 ```sh
 python -m unittest discover -s tests -t .
 ```
+
+Релиз: поднять `__version__` в `uwbfwup/__init__.py`, прогнать тесты, пересобрать и закоммитить `uwb-fw-update`, запушить `main` и выполнить `python tools/release.py` (нужен `gh` с `gh auth login`). Скрипт создаёт тег `v<версия>` и релиз с файлами `uwb-fw-update` и `uwb-fw-update.sha256` — их и находят `version --check` и `self-update`.
 
 Тесты не требуют железа. Режим `rpc` проверяется на фейковом MQTT-брокере с эмуляцией RPC `port/Load` (`tests/fake_broker.py`). Эмулятор устройств реализует прошивку, загрузчик, регистры 129/131/1004, информационный блок и блоки данных, а также внедрение сбоев: обрыв записи, потерю загрузчика, «мёртвую» прошивку, отсутствие ответа.
 
